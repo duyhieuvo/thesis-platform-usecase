@@ -1,0 +1,187 @@
+version: '2.1'
+
+services:
+  zookeeper:
+    image: apachepulsar/pulsar-all:${PULSAR_VERSION}
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "12181:2181"
+    environment:
+      ZOOKEEPER_ID: 1
+      PULSAR_ZK_CONF: /custom-conf/zookeeper.conf
+    volumes:
+      - ./conf:/custom-conf
+      - ./scripts:/scripts
+    command: /bin/bash "/scripts/start_zookeeper.sh"
+
+
+  setup:
+    image: apachepulsar/pulsar-all:${PULSAR_VERSION}
+    hostname: setup
+    container_name: setup
+    restart: on-failure
+    volumes:
+      - ./conf:/custom-conf
+      - ./scripts:/scripts
+    command: /bin/bash "/scripts/initialize_metadata.sh"
+    depends_on:
+      - zookeeper
+
+
+  bookie:
+    image: apachepulsar/pulsar-all:${PULSAR_VERSION}
+    hostname: bookie
+    container_name: bookie
+    restart: on-failure
+    ports:
+      - "13181:3181"
+    environment:
+      PULSAR_BOOKKEEPER_CONF: /custom-conf/bookkeeper.conf
+    volumes:
+      - ./conf:/custom-conf
+      - ./scripts:/scripts
+    command: /bin/bash "/scripts/start_bookkeeper.sh"
+    depends_on:
+      - setup
+
+  broker:
+    image: apachepulsar/pulsar-all:${PULSAR_VERSION}
+    hostname: broker
+    container_name: broker
+    restart: on-failure
+    environment:
+      PULSAR_BROKER_CONF: /custom-conf/broker.conf
+    ports:
+      - "16650:6650"
+      - "18080:8080"
+    volumes:
+      - ./conf:/custom-conf
+      - ./scripts:/scripts
+    command: /bin/bash "/scripts/start_broker.sh"
+    depends_on:
+      - bookie
+    healthcheck:
+      test: test $$(curl -s -o /dev/null -w %{http_code}  http://localhost:8080/admin/v2/brokers/health) -eq 200 || exit 1
+      start_period: 10s
+      interval: 20s
+      timeout: 18s
+      retries: 10
+  cli:
+    image: apachepulsar/pulsar-all:${PULSAR_VERSION}
+    hostname: cli
+    container_name: cli
+    restart: on-failure
+    command: /bin/bash
+    tty: true
+    depends_on:
+      - broker
+
+#### Event-queue with failover subscription
+  producer:
+    build:
+      context: ../
+    image: usecase/pulsar-client:latestlocal
+    hostname: pulsar-producer
+    container_name: pulsar-producer
+    restart: unless-stopped
+    depends_on:
+      - broker
+    environment:
+      PULSAR_URL: "pulsar://broker:6650"
+      PULSAR_TOPIC: "persistent://public/default/test-topic"
+      PRODUCER_NAME: "producer-1"
+      ROUTING_MODE: "RoundRobinPartition"
+      CLIENT_MODE: "producer"
+
+
+  consumer-1:
+    build:
+      context: ../
+    image: usecase/pulsar-client:latestlocal
+    hostname: pulsar-consumer-1
+    container_name: pulsar-consumer-1
+    restart: unless-stopped
+    depends_on:
+      - broker
+    environment:
+      CLIENT_MODE: "consumer"
+      PULSAR_URL: "pulsar://broker:6650"
+      PULSAR_TOPIC: "persistent://public/default/test-topic"
+      PRODUCER_NAME: "consumer-1"
+      SUBSCRIPTION_NAME: "subscription-1"
+      SUBSCRIPTION_TYPE: "Failover"
+      START_POSITION: "Earliest"
+  consumer-2:
+    build:
+      context: ../
+    image: usecase/pulsar-client:latestlocal
+    hostname: pulsar-consumer-2
+    container_name: pulsar-consumer-2
+    restart: unless-stopped
+    depends_on:
+      - broker
+    environment:
+      CLIENT_MODE: "consumer"
+      PULSAR_URL: "pulsar://broker:6650"
+      PULSAR_TOPIC: "persistent://public/default/test-topic"
+      PRODUCER_NAME: "consumer-2"
+      SUBSCRIPTION_NAME: "subscription-1"
+      SUBSCRIPTION_TYPE: "Failover"
+      START_POSITION: "Latest"
+
+#### Event-queue with shared-key
+#  producer:
+#    build:
+#      context: ../
+#    image: usecase/pulsar-client:latestlocal
+#    hostname: pulsar-producer
+#    container_name: pulsar-producer
+#    restart: unless-stopped
+#    depends_on:
+#      - broker
+#    environment:
+#      PULSAR_URL: "pulsar://broker:6650"
+#      PULSAR_TOPIC: "persistent://public/default/non-partitioned-test-topic"
+#      PRODUCER_NAME: "producer-1"
+#      ROUTING_MODE: "RoundRobinPartition"
+#      CLIENT_MODE: "producer"
+#  consumer-1:
+#    build:
+#      context: ../
+#    image: usecase/pulsar-client:latestlocal
+#    hostname: pulsar-consumer-1
+#    container_name: pulsar-consumer-1
+#    restart: unless-stopped
+#    depends_on:
+#      - broker
+#    environment:
+#      CLIENT_MODE: "consumer"
+#      PULSAR_URL: "pulsar://broker:6650"
+#      PULSAR_TOPIC: "persistent://public/default/non-partitioned-test-topic"
+#      PRODUCER_NAME: "consumer-1"
+#      SUBSCRIPTION_NAME: "subscription-1"
+#      SUBSCRIPTION_TYPE: "Key_shared"
+#      START_POSITION: "Earliest"
+#
+#  consumer-2:
+#    build:
+#      context: ../
+#    image: usecase/pulsar-client:latestlocal
+#    hostname: pulsar-consumer-2
+#    container_name: pulsar-consumer-2
+#    restart: unless-stopped
+#    depends_on:
+#      - broker
+#    environment:
+#      CLIENT_MODE: "consumer"
+#      PULSAR_URL: "pulsar://broker:6650"
+#      PULSAR_TOPIC: "persistent://public/default/non-partitioned-test-topic"
+#      PRODUCER_NAME: "consumer-2"
+#      SUBSCRIPTION_NAME: "subscription-1"
+#      SUBSCRIPTION_TYPE: "Key_shared"
+#      START_POSITION: "Earliest"
+
+networks:
+  default:
+    name: pulsar_network

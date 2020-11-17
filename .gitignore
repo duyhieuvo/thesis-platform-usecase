@@ -1,0 +1,33 @@
+target/
+bin/
+*.log
+*.jsfdia
+TestBean.java
+*TestEntity.java
+test.xhtml
+*.jasper
+.project
+.classpath
+.settings/
+.DS_Store
+rebel.xml
+.xml/
+nb-configuration.xml
+nbactions.xml
+.ruleset~
+standalone_xml_history/
+.pmd
+.eclipse-pmd
+
+integration-tests/src/test/resources-wildfly-embedded/logging.properties*
+novaermweb/faces-config.NavData
+
+# NetBeans IDE #
+################
+/*/nbproject/
+
+# IntelliJ IDE #
+################
+.idea/*
+*.iml
+

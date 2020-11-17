@@ -1,0 +1,84 @@
+version: '2.1'
+
+services:
+  zookeeper:
+    image: apachepulsar/pulsar-all:${PULSAR_VERSION}
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "12181:2181"
+    environment:
+      ZOOKEEPER_ID: 1
+      PULSAR_ZK_CONF: /custom-conf/zookeeper.conf
+    volumes:
+      - ./conf:/custom-conf
+      - ./scripts:/scripts
+    command: /bin/bash "/scripts/start_zookeeper.sh"
+
+
+  setup:
+    image: apachepulsar/pulsar-all:${PULSAR_VERSION}
+    hostname: setup
+    container_name: setup
+    restart: on-failure
+    volumes:
+      - ./conf:/custom-conf
+      - ./scripts:/scripts
+    command: /bin/bash "/scripts/initialize_metadata.sh"
+    depends_on:
+      - zookeeper
+
+
+  bookie:
+    image: apachepulsar/pulsar-all:${PULSAR_VERSION}
+    hostname: bookie
+    container_name: bookie
+    restart: on-failure
+    ports:
+      - "13181:3181"
+    environment:
+      PULSAR_BOOKKEEPER_CONF: /custom-conf/bookkeeper.conf
+    volumes:
+      - ./conf:/custom-conf
+      - ./scripts:/scripts
+    command: /bin/bash "/scripts/start_bookkeeper.sh"
+    depends_on:
+      - setup
+
+  broker:
+    image: apachepulsar/pulsar-all:${PULSAR_VERSION}
+    hostname: broker
+    container_name: broker
+    restart: on-failure
+    environment:
+      PULSAR_BROKER_CONF: /custom-conf/broker.conf
+    ports:
+      - "16650:6650"
+      - "18080:8080"
+    volumes:
+      - ./conf:/custom-conf
+      - ./scripts:/scripts
+    command: /bin/bash "/scripts/start_broker.sh"
+    depends_on:
+      - bookie
+    healthcheck:
+      test: test $$(curl -s -o /dev/null -w %{http_code}  http://localhost:8080/admin/v2/brokers/health) -eq 200 || exit 1
+      start_period: 10s
+      interval: 20s
+      timeout: 18s
+      retries: 10
+
+  cli:
+    image: apachepulsar/pulsar-all:${PULSAR_VERSION}
+    hostname: cli
+    container_name: cli
+    restart: on-failure
+    command: /bin/bash
+    tty: true
+    depends_on:
+      - broker
+
+
+networks:
+  default:
+    name: pulsar_network
